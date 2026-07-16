@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, APIRouter, Depends, UploadFile, status
 from fastapi.responses import JSONResponse
 from controllers import DataController
@@ -25,10 +27,14 @@ async def upload_file(file: UploadFile, project_id: str, app_settings : Settings
                 "validation_response": validation_response
             }
         )
+    else:
+        file_path = DataController().save_file(file, project_id)
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "message": "File validation successful",
-            "validation_response": validation_response
+            "validation_response": validation_response,
+            "file_path": file_path
         }
     )
+ 
