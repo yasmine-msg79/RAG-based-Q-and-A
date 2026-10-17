@@ -7,12 +7,12 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 
-from helpers import embedding, generation, pdf_processor
+from helpers import pdf_processor
 from helpers.doc_processor import DocProcessor
 from helpers.subject_processor import SubjectProcessor
 from helpers.vector_store import store_chunks, search_chunks, has_document_chunks
 from helpers.question_processor import QuestionProcessor
-
+from helpers import embedding, generation
 from models.document import Document
 
 import os

@@ -1,5 +1,6 @@
 
 from sqlalchemy.orm import Session, selectinload
+from fpdf import FPDF
 
 from models.question import Question
 from models.answer import Answer
@@ -167,7 +168,6 @@ class QuestionProcessor:
         document_id: int,
         file_path: str,
     ) -> None:
-        from fpdf import FPDF
 
         questions = self.get_questions_by_document(db, document_id)
 
