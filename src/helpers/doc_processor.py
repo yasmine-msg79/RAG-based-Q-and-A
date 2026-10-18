@@ -161,3 +161,7 @@ class DocProcessor:
         except Exception:
             db.rollback()
             raise
+
+    def get_document(self, db: Session, document_id: int):
+        document = db.query(Document).filter(Document.ID == document_id).first()
+        return self._to_dict(document) if document else None

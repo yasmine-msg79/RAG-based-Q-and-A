@@ -1,45 +1,133 @@
 
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, switchMap } from 'rxjs';
 
 @Injectable({
-  providedIn: 'root',
+  providedIn: 'root'
 })
 export class ApiService {
   private readonly baseUrl = 'http://127.0.0.1:8000/api/v1';
 
-  constructor(private http: HttpClient) {}
+  constructor(private readonly http: HttpClient) {}
+
+  // ---------- Subjects ----------
+
+  getSubjects(): Observable<any> {
+    return this.http.get(`${this.baseUrl}/subjects`);
+  }
+
+  createSubject(name: string): Observable<any> {
+    return this.http.post(`${this.baseUrl}/subjects`, { name });
+  }
+
+  // ---------- Documents ----------
+
+  getDocuments(subjectId: string | number): Observable<any> {
+    const params = new HttpParams().set('subject_id', String(subjectId));
+
+    return this.http.get(`${this.baseUrl}/subjects/documents`, { params });
+  }
 
   uploadDocument(
     file: File,
-    subjectName: string,
-    documentName: string,
+    subjectId: string | number,
+    documentName: string
   ): Observable<any> {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('subject_name', subjectName);
-    formData.append('name', documentName);
+    const form = new FormData();
 
-    return this.http.post(
-      `${this.baseUrl}/data/upload`,
-      formData,
+    form.append('file', file);
+    form.append('subject_id', String(subjectId));
+    form.append('name', documentName);
+
+    return this.http.post<any>(`${this.baseUrl}/data/upload`, form).pipe(
+      switchMap((uploadResponse: any) => {
+        const documentId =
+          uploadResponse?.document?.id ??
+          uploadResponse?.document_id ??
+          uploadResponse?.id;
+
+        if (documentId == null) {
+          throw new Error(
+            'Upload succeeded, but the response did not include the document ID needed for processing.'
+          );
+        }
+
+        return this.processDocument(documentId).pipe(
+          // Preserve the upload response for the component.
+          switchMap((processResponse: any) => [
+            {
+              upload: uploadResponse,
+              processing: processResponse
+            }
+          ])
+        );
+      })
     );
   }
 
-  getDocuments(subjectName: string): Observable<any> {
-    const params = new HttpParams().set('subject_name', subjectName);
+  processDocument(id: string | number): Observable<any> {
+    return this.http.post(
+      `${this.baseUrl}/data/documents/${encodeURIComponent(String(id))}/process`,
+      {}
+    );
+  }
 
+  deleteDocument(id: string | number): Observable<any> {
+    return this.http.delete(
+      `${this.baseUrl}/data/documents/${encodeURIComponent(String(id))}`
+    );
+  }
+
+  // ---------- Questions ----------
+
+  getDocumentQuestions(id: string | number): Observable<any> {
     return this.http.get(
-      `${this.baseUrl}/subjects/documents`,
-      { params },
+      `${this.baseUrl}/data/documents/${encodeURIComponent(String(id))}/questions`
     );
   }
 
-  processDocument(documentId: number | string): Observable<any> {
-    return this.http.post(
-      `${this.baseUrl}/data/documents/${documentId}/process`,
-      {},
+  // ---------- Optional query helpers ----------
+
+  getDocumentDetails(id: string | number): Observable<any> {
+    return this.http.get(
+      `${this.baseUrl}/documents/${encodeURIComponent(String(id))}`
     );
   }
+
+  getSubjectQuestions(subjectId: string | number): Observable<any> {
+    return this.http.get(
+      `${this.baseUrl}/data/questions/subject/${encodeURIComponent(String(subjectId))}`
+    );
+  }
+
+  
+  generateMCQs(
+    documentId: string | number,
+    numQuestions: number,
+    topK: number = 3
+  ): Observable<any> {
+    return this.http.post(
+      `${this.baseUrl}/data/documents/${encodeURIComponent(String(documentId))}/generate_mcqs`,
+      {
+        num_questions: numQuestions,
+        top_k: topK
+      }
+    );
+  }
+
+  generateTrueFalse(
+    documentId: string | number,
+    numQuestions: number,
+    topK: number = 3
+  ): Observable<any> {
+    return this.http.post(
+      `${this.baseUrl}/data/documents/${encodeURIComponent(String(documentId))}/generate_true_false`,
+      {
+        num_questions: numQuestions,
+        top_k: topK
+      }
+    );
+  }
+
 }

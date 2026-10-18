@@ -1,0 +1,389 @@
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">R</div>
+      <div>
+        <h1>RecallLab</h1>
+        <p>Study workspace</p>
+      </div>
+    </div>
+
+    <div class="sidebar-heading">
+      <h2>Subjects</h2>
+      <button
+        type="button"
+        class="icon-button"
+        (click)="showCreateSubject = !showCreateSubject"
+        aria-label="Create subject"
+        title="Create subject"
+      >
+        +
+      </button>
+    </div>
+
+    <form
+      *ngIf="showCreateSubject"
+      class="create-subject-form"
+      (ngSubmit)="createSubject()"
+    >
+      <input
+        type="text"
+        name="newSubjectName"
+        [(ngModel)]="newSubjectName"
+        placeholder="Subject name"
+        required
+      />
+      <button type="submit" [disabled]="creatingSubject">
+        {{ creatingSubject ? 'Creating...' : 'Create' }}
+      </button>
+    </form>
+
+    <div *ngIf="loadingSubjects" class="sidebar-message">
+      Loading subjects...
+    </div>
+
+    <nav class="subject-list" *ngIf="!loadingSubjects">
+      <button
+        *ngFor="let subject of subjects"
+        type="button"
+        class="subject-item"
+        [class.active]="selectedSubject?.id === subject.id"
+        (click)="selectSubject(subject)"
+      >
+        <span class="subject-icon">▤</span>
+        <span class="subject-name">{{ subject.name }}</span>
+        <span
+          *ngIf="selectedSubject?.id === subject.id"
+          class="active-indicator"
+        ></span>
+      </button>
+
+      <div *ngIf="subjects.length === 0" class="empty-sidebar">
+        No subjects yet. Create one to get started.
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span>AI study workspace</span>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <!-- <header class="topbar">
+      <div class="breadcrumb">
+        <span>Workspace</span>
+        <span class="breadcrumb-separator">/</span>
+        <strong>{{ selectedSubject?.name || 'Overview' }}</strong>
+      </div>
+      <div class="topbar-label">PDF Question Generator</div>
+    </header> -->
+
+    <div class="page-content">
+      <div
+        *ngIf="errorMessage"
+        class="alert alert-error"
+        role="alert"
+      >
+        <span>{{ errorMessage }}</span>
+        <button
+          type="button"
+          (click)="errorMessage = ''"
+          aria-label="Dismiss"
+        >
+          ×
+        </button>
+      </div>
+
+      <div
+        *ngIf="successMessage"
+        class="alert alert-success"
+        role="status"
+      >
+        <span>{{ successMessage }}</span>
+        <button
+          type="button"
+          (click)="successMessage = ''"
+          aria-label="Dismiss"
+        >
+          ×
+        </button>
+      </div>
+
+      <section *ngIf="!selectedSubject" class="welcome-section">
+        <div class="welcome-icon">✦</div>
+        <p class="eyebrow">YOUR PERSONAL STUDY SPACE</p>
+        <h2>Turn your PDFs into practice questions.</h2>
+        <p class="welcome-description">
+          Create a subject, upload your study material, and generate
+          multiple-choice and true-or-false questions from your documents.
+        </p>
+
+        <button
+          type="button"
+          class="primary-button"
+          (click)="showCreateSubject = true"
+        >
+          + Create your first subject
+        </button>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <div class="feature-icon">▤</div>
+            <h3>Organize material</h3>
+            <p>Keep your PDFs grouped by subject.</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon">✧</div>
+            <h3>Generate questions</h3>
+            <p>Create practice questions from your study content.</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon">✓</div>
+            <h3>Test yourself</h3>
+            <p>Answer questions before revealing the correct answers.</p>
+          </article>
+        </div>
+      </section>
+
+      <section *ngIf="selectedSubject" class="workspace-section">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">SUBJECT WORKSPACE</p>
+            <h2>{{ selectedSubject.name }}</h2>
+            <p class="page-description">
+              Manage your study documents and practice questions.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            class="primary-button"
+            (click)="openUploadModal()"
+          >
+            + Upload Document
+          </button>
+        </div>
+
+        <section class="panel documents-panel">
+          <div class="panel-heading">
+            <div>
+              <h3>Your documents</h3>
+              <p>Upload PDFs and process them to generate questions.</p>
+            </div>
+
+            <button
+              type="button"
+              class="secondary-button"
+              (click)="loadDocuments()"
+              [disabled]="loadingDocuments"
+            >
+              {{ loadingDocuments ? 'Refreshing...' : '↻ Refresh' }}
+            </button>
+          </div>
+
+          <div class="search-row">
+            <div class="search-box">
+              <span>⌕</span>
+              <input
+                type="search"
+                name="searchTerm"
+                [(ngModel)]="searchTerm"
+                placeholder="Search documents..."
+              />
+            </div>
+
+            <span class="item-count">
+              {{ filteredDocuments.length }}
+              {{ filteredDocuments.length === 1 ? 'document' : 'documents' }}
+            </span>
+          </div>
+
+          <div *ngIf="loadingDocuments" class="loading-state">
+            <span class="spinner"></span>
+            <p>Loading documents...</p>
+          </div>
+
+          <div
+            *ngIf="!loadingDocuments && documents.length === 0"
+            class="empty-state"
+          >
+            <div class="empty-icon">▤</div>
+            <h4>No documents yet</h4>
+            <p>Create a document by uploading a PDF to this subject.</p>
+
+            <button
+              type="button"
+              class="primary-button"
+              (click)="openUploadModal()"
+            >
+              + Upload Document
+            </button>
+          </div>
+
+          <div
+            *ngIf="
+              !loadingDocuments &&
+              documents.length > 0 &&
+              filteredDocuments.length === 0
+            "
+            class="empty-state compact"
+          >
+            <h4>No matching documents</h4>
+            <p>Try another search term.</p>
+          </div>
+
+          <div
+            *ngIf="!loadingDocuments && filteredDocuments.length > 0"
+            class="document-list"
+          >
+            <article
+              *ngFor="let document of filteredDocuments"
+              class="document-row"
+            >
+              <div class="pdf-icon">PDF</div>
+
+              <div class="document-info">
+                <h4>{{ document.name }}</h4>
+                <p>{{ document.filename || 'PDF document' }}</p>
+              </div>
+
+              <span class="document-status">
+                {{
+                  processingDocumentId === idString(document.id)
+                    ? 'Processing'
+                    : (document.status || 'Uploaded')
+                }}
+              </span>
+
+              <button
+                type="button"
+                class="danger-icon-button"
+                (click)="deleteDocument(document)"
+                [disabled]="deletingId === idString(document.id)"
+                title="Delete document"
+                aria-label="Delete document"
+              >
+                {{ deletingId === idString(document.id) ? '…' : '×' }}
+              </button>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel questions-panel">
+          <div class="panel-heading">
+            <div>
+              <h3>Quiz Yourself</h3>
+              <p>
+                Generate questions from your subject's documents and take
+                practice quizzes.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="primary-button"
+              (click)="openQuestionBank()"
+              [disabled]="documents.length === 0"
+            >
+              Go to Question Bank →
+            </button>
+          </div>
+        </section>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div
+  *ngIf="showUploadModal"
+  class="modal-backdrop"
+  (click)="closeUploadModal()"
+>
+  <section
+    class="upload-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="upload-modal-title"
+    (click)="$event.stopPropagation()"
+  >
+    <div class="modal-header">
+      <div>
+        <p class="eyebrow">DOCUMENT LIBRARY</p>
+        <h2 id="upload-modal-title">Create Document</h2>
+        <p>Upload a PDF to {{ selectedSubject?.name }}.</p>
+      </div>
+
+      <button
+        type="button"
+        class="icon-button"
+        (click)="closeUploadModal()"
+        aria-label="Close modal"
+      >
+        ×
+      </button>
+    </div>
+
+    <form class="upload-form" (ngSubmit)="uploadDocument()">
+      <div class="form-group">
+        <label for="document-name">Document name</label>
+        <input
+          id="document-name"
+          type="text"
+          name="documentName"
+          [(ngModel)]="documentName"
+          placeholder="e.g. Chapter 1 - Introduction"
+          required
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="document-file">PDF file</label>
+
+        <label class="file-dropzone" for="document-file">
+          <span class="file-upload-icon">↑</span>
+          <strong>
+            {{ selectedFile ? selectedFile.name : 'Choose a PDF file' }}
+          </strong>
+          <span>
+            {{
+              selectedFile
+                ? ((selectedFile.size / 1024 / 1024) | number:'1.1-2') + ' MB'
+                : 'Select a PDF from your device'
+            }}
+          </span>
+        </label>
+
+        <input
+          id="document-file"
+          class="file-input"
+          type="file"
+          accept=".pdf,application/pdf"
+          (change)="chooseFile($event)"
+        />
+      </div>
+
+      <div class="modal-actions">
+        <button
+          type="button"
+          class="secondary-button"
+          (click)="closeUploadModal()"
+          [disabled]="uploading"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="submit"
+          class="primary-button"
+          [disabled]="uploading || !selectedFile || !documentName.trim()"
+        >
+          {{ uploading ? 'Uploading...' : 'Upload and Process' }}
+        </button>
+      </div>
+    </form>
+  </section>
+</div>

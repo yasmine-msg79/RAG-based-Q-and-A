@@ -85,6 +85,7 @@ Rules:
     return json.loads(response.message.content)
 
 
+
 def generate_true_false(retrieved_chunks, num_questions=5):
     context = "\n\n".join(
         chunk["text"] for chunk in retrieved_chunks
@@ -97,10 +98,9 @@ def generate_true_false(retrieved_chunks, num_questions=5):
             {
                 "role": "system",
                 "content": """
-You generate True/False questions using only the
-provided context.
+Generate True/False questions using only the provided context.
 
-Return valid JSON in this exact structure:
+Return JSON in exactly this structure:
 {
   "questions": [
     {
@@ -111,22 +111,38 @@ Return valid JSON in this exact structure:
 }
 
 Rules:
-- answer must be the JSON boolean true or false.
+- Every question must contain "statement" and "answer".
+- "answer" must be a JSON boolean: true or false, never a string.
 - Include a reasonable mix of true and false statements.
-- False statements must contradict the context, not rely
-  on outside knowledge.
-- Do not use information absent from the context.
-- Return only the requested number of questions.
+- False statements must contradict the context.
+- Return exactly the requested number of questions.
+- Return only valid JSON.
 """
             },
             {
                 "role": "user",
                 "content": (
-                    f"Generate {num_questions} True/False "
-                    f"questions from this context:\n\n{context}"
+                    f"Generate {num_questions} True/False questions "
+                    f"from this context:\n\n{context}"
                 )
             }
         ],
     )
 
-    return json.loads(response.message.content)
+    data = json.loads(response.message.content)
+
+    if not isinstance(data.get("questions"), list):
+        raise ValueError("True/false generation did not return a questions list.")
+
+    for index, item in enumerate(data["questions"], start=1):
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("statement"), str)
+            or not item["statement"].strip()
+            or type(item.get("answer")) is not bool
+        ):
+            raise ValueError(
+                f"Invalid true/false question at position {index}: {item}"
+            )
+
+    return data

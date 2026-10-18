@@ -1,23 +1,21 @@
-from fastapi import APIRouter, Form, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-
-from fastapi import Depends
-from sqlalchemy.orm import Session
-
-from database import get_db
-
-from helpers import pdf_processor
-from helpers.doc_processor import DocProcessor
-from helpers.subject_processor import SubjectProcessor
-from helpers.vector_store import store_chunks, search_chunks, has_document_chunks
-from helpers.question_processor import QuestionProcessor
-from helpers import embedding, generation
-from models.document import Document
 
 import os
 
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from database import get_db
+from helpers import embedding, generation, pdf_processor
+from helpers.doc_processor import DocProcessor
+from helpers.subject_processor import SubjectProcessor
+from helpers.vector_store import (
+    has_document_chunks,
+    search_chunks,
+    store_chunks,
+)
+from helpers.question_processor import QuestionProcessor
 
 
 data_router = APIRouter(
@@ -25,84 +23,63 @@ data_router = APIRouter(
     tags=["api_v1", "data"],
 )
 
-class ProcessorDocumentRequest(BaseModel):
-    subject_name: str
-    document_name: str
+
+# ---------------------------------------------------------------------
+# Request models
+# ---------------------------------------------------------------------
 
 class GenerateAnswerRequest(BaseModel):
-    subject_name: str
-    document_name: str
-    query: str
-    top_k: int = 3
+    query: str = Field(min_length=1)
+    top_k: int = Field(default=3, ge=1)
 
 
 class GenerateQuestionsRequest(BaseModel):
-    subject_name: str
-    document_name: str
-    top_k: int = 3
-    num_questions: int = 5
-    
-class DeleteDocumentRequest(BaseModel):
-    subject_name: str
-    document_name: str
-    
-class GetQuestionsByDocumentRequest(BaseModel):
-    subject_name: str
-    document_name: str
-
-class GetQuestionsBySubjectRequest(BaseModel):
-    subject_name: str
-
-class GetQuestionsByTypeRequest(BaseModel):
-    subject_name: str
-    document_name: str
-    question_type: str
-    
+    top_k: int = Field(default=3, ge=1)
+    num_questions: int = Field(default=5, ge=1)
 
 
-def _get_document_context(
-    db: Session,
-    subject_name: str,
-    document_name: str,
-):
-    subject = SubjectProcessor().get_subject_by_name(
-        db, subject_name
-    )
+# ---------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------
 
-    if subject is None:
-        return None, JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={"message": "Subject does not exist."},
-        )
-
-    document = DocProcessor().get_document_by_name(
-        db, subject["id"], document_name
-    )
+def _get_document(db: Session, document_id: int) -> dict:
+    """Retrieve a document by ID or raise 404."""
+    document = DocProcessor().get_document(db, document_id)
 
     if document is None:
-        return None, JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            content={"message": "Document does not exist."},
+            detail="Document not found.",
         )
+
+    return document
+
+
+def _get_processed_document(
+    db: Session,
+    document_id: int,
+) -> dict:
+    """Retrieve a document and ensure its chunks exist."""
+    document = _get_document(db, document_id)
 
     if not has_document_chunks(
-        subject["id"],
+        document["subject_id"],
         document["id"],
     ):
-        return None, JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={
-                "message": (
-                    f"Document '{document['name']}' under "
-                    f"'{subject['name']}' has not been processed."
-                )
-            },
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Document has not been processed yet.",
         )
 
-    return (subject, document), None
+    return document
 
 
-def _retrieve_chunks(query: str, document: dict, top_k: int):
+def _retrieve_chunks(
+    query: str,
+    document: dict,
+    top_k: int,
+) -> list[dict[str, str]]:
+    """Retrieve relevant text chunks for a document."""
     query_embedding = embedding.get_embedding([query])[0]
 
     results = search_chunks(
@@ -112,104 +89,27 @@ def _retrieve_chunks(query: str, document: dict, top_k: int):
         top_k=top_k,
     )
 
-    texts = results["documents"][0] if results["documents"] else []
+    documents = results.get("documents") or []
+    texts = documents[0] if documents else []
 
     return [{"text": text} for text in texts]
 
 
-@data_router.post("/upload")
-async def upload_file(
-    file: UploadFile,
-    subject_name: str = Form(...),
-    name: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    doc_processor = DocProcessor()
-
-    file_type_valid, file_type_status = doc_processor.validate_file_type(file)
-    file_size_valid, file_size_status = doc_processor.validate_file_size(file)
-
-    validation_response = {
-        "file_type_validation": file_type_status,
-        "file_size_validation": file_size_status,
-    }
-
-    if not (file_type_valid and file_size_valid):
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "message": "File validation failed",
-                "validation_response": validation_response,
-            },
-        )
-
-    try:
-        subject = SubjectProcessor().get_subject_by_name(db, subject_name)
-        if subject is None:
-            return JSONResponse(
-                status_code=status.HTTP_404_NOT_FOUND,
-                content={"message": "Subject does not exist."},
-            )
-
-        document, _ = doc_processor.save_document(
-            db, file, subject["id"], name
-        )
-
-    except ValueError as error:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"message": str(error)},
-        )
-    except FileExistsError:
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={"message": f"A document named '{name.strip()}' already exists under subject '{subject_name}'."},
-        )
-    except FileNotFoundError:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={"message": f"Subject '{subject_name}' does not exist."},
-        )
-
-    return JSONResponse(
-        status_code=status.HTTP_201_CREATED,
-        content={
-            "message": "File uploaded successfully. Processing has not started.",
-            "validation_response": validation_response,
-            "document": document,
-        },
-    )
-    
-@data_router.post(
-    "/subjects/{subject_name}/documents/{document_name}/process"
-)
-def process_document(
-    db: Session = Depends(get_db), request: ProcessorDocumentRequest = None
-):
+def _document_file_path(
+    db: Session,
+    document: dict,
+) -> str:
+    """Resolve the file path using the document's stored subject ID."""
     subject_processor = SubjectProcessor()
-
-    subject = subject_processor.get_subject_by_name(db, request.subject_name)
-
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found.")
-
-    subject_id = subject["id"]  # If get_subject_by_name returns a dictionary
-
-    document = DocProcessor().get_document_by_name(
-        db, subject_id, request.document_name
-    )
-
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found.")
-
 
     try:
         subject_path = subject_processor.get_subject_path(
-            db, subject_id
+            db,
+            document["subject_id"],
         )
     except FileNotFoundError:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Subject directory not found.",
         )
 
@@ -220,9 +120,99 @@ def process_document(
 
     if not os.path.isfile(file_path):
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="The document file could not be found.",
         )
+
+    return file_path
+
+
+# ---------------------------------------------------------------------
+# Upload document
+# POST /api/v1/data/upload
+# ---------------------------------------------------------------------
+
+@data_router.post("/upload", status_code=status.HTTP_201_CREATED)
+async def upload_file(
+    file: UploadFile = File(...),
+    subject_id: int = Form(...),
+    name: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    doc_processor = DocProcessor()
+
+    file_type_valid, file_type_status = (
+        doc_processor.validate_file_type(file)
+    )
+    file_size_valid, file_size_status = (
+        doc_processor.validate_file_size(file)
+    )
+
+    validation_response = {
+        "file_type_validation": file_type_status,
+        "file_size_validation": file_size_status,
+    }
+
+    if not (file_type_valid and file_size_valid):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "File validation failed.",
+                "validation_response": validation_response,
+            },
+        )
+
+    subject_processor = SubjectProcessor()
+    subject = subject_processor.get_subject(db, subject_id)
+
+    if subject is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Subject not found.",
+        )
+
+    try:
+        document, _ = doc_processor.save_document(
+            db,
+            file,
+            subject_id,
+            name,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        )
+    except FileExistsError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A document named '{name.strip()}' already exists.",
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Subject directory not found.",
+        )
+
+    return {
+        "message": "File uploaded successfully. Processing has not started.",
+        "validation_response": validation_response,
+        "document": document,
+    }
+
+
+# ---------------------------------------------------------------------
+# Process document
+# POST /api/v1/data/documents/{document_id}/process
+# ---------------------------------------------------------------------
+
+@data_router.post("/documents/{document_id}/process")
+def process_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+):
+    document = _get_document(db, document_id)
+    file_path = _document_file_path(db, document)
 
     try:
         text, page_count = pdf_processor.get_pdf_text(file_path)
@@ -230,7 +220,7 @@ def process_document(
 
         if not chunks:
             raise HTTPException(
-                status_code=422,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="No extractable text was found in the document.",
             )
 
@@ -246,9 +236,9 @@ def process_document(
     except HTTPException:
         raise
     except Exception:
-        # Log the exception here while debugging.
+        # Replace with logger.exception(...) when logging is configured.
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Document processing failed.",
         )
 
@@ -259,20 +249,19 @@ def process_document(
         "chunk_count": len(chunks),
     }
 
-@data_router.post("/generate_answer")
-async def generate_answer(db: Session = Depends(get_db), request: GenerateAnswerRequest = None):
-    try:
-        context, error = _get_document_context(
-            db, request.subject_name, request.document_name
-        )
-    except ValueError as error:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"message": str(error)},
-        )
-    if error is not None:
-        return error
-    subject, document = context
+
+# ---------------------------------------------------------------------
+# Generate answer
+# POST /api/v1/data/documents/{document_id}/generate_answer
+# ---------------------------------------------------------------------
+
+@data_router.post("/documents/{document_id}/generate_answer")
+def generate_answer(
+    document_id: int,
+    request: GenerateAnswerRequest,
+    db: Session = Depends(get_db),
+):
+    document = _get_processed_document(db, document_id)
 
     retrieved_chunks = _retrieve_chunks(
         request.query,
@@ -282,40 +271,33 @@ async def generate_answer(db: Session = Depends(get_db), request: GenerateAnswer
 
     if not retrieved_chunks:
         raise HTTPException(
-            status_code=404,
-            detail="No processed chunks found for this document.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No relevant chunks found for this document.",
         )
 
     answer = generation.generate_answer(
         request.query,
         retrieved_chunks,
     )
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": (
-                f"Generated answer for query '{request.query}' in document "
-                f"'{document['name']}' under subject '{subject['name']}'."
-            ),
-            "answer": answer,
-        },
-    )
+
+    return {
+        "message": f"Generated answer for document '{document['name']}'.",
+        "answer": answer,
+    }
 
 
-@data_router.post("/generate_mcqs")
-async def generate_mcqs( db: Session = Depends(get_db), request: GenerateQuestionsRequest = None):
-    try:
-        context, error = _get_document_context(
-            db, request.subject_name, request.document_name
-        )
-    except ValueError as error:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"message": str(error)},
-        )
-    if error is not None:
-        return error
-    subject, document = context
+# ---------------------------------------------------------------------
+# Generate MCQs
+# POST /api/v1/data/documents/{document_id}/generate_mcqs
+# ---------------------------------------------------------------------
+
+@data_router.post("/documents/{document_id}/generate_mcqs")
+def generate_mcqs(
+    document_id: int,
+    request: GenerateQuestionsRequest,
+    db: Session = Depends(get_db),
+):
+    document = _get_processed_document(db, document_id)
 
     query = "Generate multiple-choice questions based on the content."
     retrieved_chunks = _retrieve_chunks(
@@ -326,8 +308,8 @@ async def generate_mcqs( db: Session = Depends(get_db), request: GenerateQuestio
 
     if not retrieved_chunks:
         raise HTTPException(
-            status_code=404,
-            detail="No processed chunks found for this document.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No relevant chunks found for this document.",
         )
 
     mcqs = generation.generate_mcqs(
@@ -341,36 +323,29 @@ async def generate_mcqs( db: Session = Depends(get_db), request: GenerateQuestio
         generated_data=mcqs,
         question_type="MCQ",
     )
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": (
-                f"Generated multiple-choice questions for document "
-                f"'{document['name']}' under subject '{subject['name']}'."
-            ),
-            "mcqs": mcqs,
-            "saved_question_ids": saved_ids,
-        },
-    )
+
+    return {
+        "message": f"Generated multiple-choice questions for '{document['name']}'.",
+        "mcqs": mcqs,
+        "saved_question_ids": saved_ids,
+    }
 
 
-@data_router.post("/generate_true_false")
-async def generate_true_false(db: Session = Depends(get_db), request: GenerateQuestionsRequest = None):
-    try:
-        context, error = _get_document_context(
-            db, request.subject_name, request.document_name
-        )
-    except ValueError as error:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"message": str(error)},
-        )
-    if error is not None:
-        return error
-    subject, document = context
+# ---------------------------------------------------------------------
+# Generate true/false questions
+# POST /api/v1/data/documents/{document_id}/generate_true_false
+# ---------------------------------------------------------------------
+
+@data_router.post("/documents/{document_id}/generate_true_false")
+def generate_true_false(
+    document_id: int,
+    request: GenerateQuestionsRequest,
+    db: Session = Depends(get_db),
+):
+    document = _get_processed_document(db, document_id)
 
     query = "Generate true/false questions based on the content."
-    retrieved_chunks = (
+    retrieved_chunks = _retrieve_chunks(
         query,
         document,
         request.top_k,
@@ -378,130 +353,95 @@ async def generate_true_false(db: Session = Depends(get_db), request: GenerateQu
 
     if not retrieved_chunks:
         raise HTTPException(
-            status_code=404,
-            detail="No processed chunks found for this document.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No relevant chunks found for this document.",
         )
 
     true_false_questions = generation.generate_true_false(
         retrieved_chunks,
         request.num_questions,
     )
+
     saved_ids = QuestionProcessor().save_generated_questions(
         db=db,
         document_id=document["id"],
         generated_data=true_false_questions,
         question_type="TRUE_FALSE",
     )
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": (
-                f"Generated true/false questions for document "
-                f"'{document['name']}' under subject '{subject['name']}'."
-            ),
-            "true_false_questions": true_false_questions,
-            "saved_question_ids": saved_ids,
-        },
-    )
 
-# @data_router.delete("/questions/{question_id}")
-# async def delete_question(
-#     question_id: int,
-#     db: Session = Depends(get_db),
-# ):
-#     try:
-#         QuestionProcessor().delete_question(db, question_id)
-#     except ValueError as error:
-#         return JSONResponse(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             content={"message": str(error)},
-#         )
-#     return JSONResponse(
-#         status_code=status.HTTP_200_OK,
-#         content={"message": f"Question with ID {question_id} deleted successfully."},
-#     )
-    
+    return {
+        "message": f"Generated true/false questions for '{document['name']}'.",
+        "true_false_questions": true_false_questions,
+        "saved_question_ids": saved_ids,
+    }
 
-@data_router.get(
-    "/subjects/{subject_name}/documents/{document_name}/questions"
-)
-async def get_questions_by_document(
-    subject_name: str,
-    document_name: str,
+
+# ---------------------------------------------------------------------
+# Get questions for a document
+# GET /api/v1/data/documents/{document_id}/questions
+# ---------------------------------------------------------------------
+
+@data_router.get("/documents/{document_id}/questions")
+def get_questions_by_document(
+    document_id: int,
     db: Session = Depends(get_db),
 ):
-    context, error = _get_document_context(
-        db, subject_name, document_name
-    )
-
-    if error is not None:
-        return error
-
-    subject, document = context
+    document = _get_document(db, document_id)
 
     questions = QuestionProcessor().get_questions_by_document(
         db=db,
         document_id=document["id"],
     )
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": (
-                f"Retrieved questions for document '{document['name']}' "
-                f"under subject '{subject['name']}'."
-            ),
-            "questions": [q.to_dict() for q in questions],
-        },
-    )
+    return {
+        "message": f"Retrieved questions for '{document['name']}'.",
+        "questions": [question.to_dict() for question in questions],
+    }
 
 
-@data_router.get("/questions/subject/{subject_name}")
-async def get_questions_by_subject(
-    subject_name: str,
+# ---------------------------------------------------------------------
+# Get questions for a subject
+# GET /api/v1/data/questions/subject/{subject_id}
+# ---------------------------------------------------------------------
+
+@data_router.get("/questions/subject/{subject_id}")
+def get_questions_by_subject(
+    subject_id: int,
     db: Session = Depends(get_db),
 ):
-    subject = SubjectProcessor().get_subject_by_name(db, subject_name)
+    subject = SubjectProcessor().get_subject_by_id(db, subject_id)
 
     if subject is None:
-        return JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            content={"message": "Subject not found."},
+            detail="Subject not found.",
         )
 
     questions = QuestionProcessor().get_questions_by_subject(
         db=db,
-        subject_id=subject["id"],
+        subject_id=subject_id,
     )
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": (
-                f"Retrieved questions for subject '{subject['name']}'."
-            ),
-            "questions": [q.to_dict() for q in questions],
-        },
-    )
+    return {
+        "message": "Retrieved questions for subject.",
+        "questions": [question.to_dict() for question in questions],
+    }
 
+
+# ---------------------------------------------------------------------
+# Get questions by type
+# GET /api/v1/data/documents/{document_id}/questions/type/{question_type}
+# ---------------------------------------------------------------------
 
 @data_router.get(
-    "/subjects/{subject_name}/documents/{document_name}/questions/type/{question_type}"
+    "/documents/{document_id}/questions/type/{question_type}"
 )
-async def get_questions_by_type(
-    subject_name: str,
-    document_name: str,
+def get_questions_by_type(
+    document_id: int,
     question_type: str,
     db: Session = Depends(get_db),
 ):
-    context, error = _get_document_context(
-        db, subject_name, document_name
-    )
-
-    if error is not None:
-        return error
-
-    subject, document = context
+    document = _get_document(db, document_id)
 
     try:
         questions = QuestionProcessor().get_question_by_type(
@@ -510,78 +450,39 @@ async def get_questions_by_type(
             question_type=question_type,
         )
     except ValueError as error:
-        return JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={"message": str(error)},
+            detail=str(error),
         )
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": (
-                f"Retrieved {question_type.upper()} questions for "
-                f"document '{document['name']}' under "
-                f"subject '{subject['name']}'."
-            ),
-            "questions": [q.to_dict() for q in questions],
-        },
-    )
+    return {
+        "message": f"Retrieved {question_type.upper()} questions.",
+        "questions": [question.to_dict() for question in questions],
+    }
 
-# @data_router.get("/questions/all")
-# async def get_all_questions(
-#     db: Session = Depends(get_db),
-# ):
-#     questions = QuestionProcessor().get_all_questions(db)
 
-#     return JSONResponse(
-#         status_code=status.HTTP_200_OK,
-#         content={
-#             "message": "Retrieved all questions.",
-#             "questions": [q.to_dict() for q in questions],
-#         },
-#     )
-    
-@data_router.delete("/documents/{document_name}")
-async def delete_document(
-    db: Session = Depends(get_db), request: DeleteDocumentRequest = None
+# ---------------------------------------------------------------------
+# Delete document
+# DELETE /api/v1/data/documents/{document_id}
+# ---------------------------------------------------------------------
+
+@data_router.delete("/documents/{document_id}")
+def delete_document(
+    document_id: int,
+    db: Session = Depends(get_db),
 ):
-    subject_processor = SubjectProcessor()
-    doc_processor = DocProcessor()
-
-    subject = subject_processor.get_subject_by_name(db, request.subject_name)
-
-    if not subject:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={"message": "Subject not found."},
-        )
-
-    document = doc_processor.get_document_by_name(
-        db, subject["id"], document_name
-    )
-
-    if not document:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={"message": "Document not found."},
-        )
+    document = _get_document(db, document_id)
 
     try:
-        doc_processor.delete_document(db, document["id"])
-    except Exception as e:
-        return JSONResponse(
+        DocProcessor().delete_document(db, document["id"])
+    except Exception:
+        # Replace with logger.exception(...) when logging is configured.
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"message": f"Failed to delete document: {str(e)}"},
+            detail="Failed to delete document.",
         )
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": (
-                f"Document '{document['name']}' under subject "
-                f"'{subject['name']}' deleted successfully."
-            )
-        },
-    )
-    
-    
+    return {
+        "message": "Document deleted successfully.",
+        "document_id": document_id,
+    }

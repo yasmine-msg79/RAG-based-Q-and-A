@@ -1,0 +1,329 @@
+
+<div class="question-bank-page">
+  <header class="page-header">
+    <button
+      type="button"
+      class="back-button"
+      (click)="backToDocuments()"
+    >
+      ← Back to documents
+    </button>
+
+    <p class="eyebrow">QUESTION GENERATION</p>
+    <h1>{{ subjectName }}</h1>
+    <p class="subtitle">
+      Generate questions from your PDFs or practise with questions you've already saved.
+    </p>
+  </header>
+
+  <!-- Error message -->
+  <div
+    *ngIf="errorMessage"
+    class="notice error-notice"
+    role="alert"
+  >
+    {{ errorMessage }}
+    <button
+      type="button"
+      (click)="errorMessage = ''"
+    >
+      ×
+    </button>
+  </div>
+
+  <!-- Success message -->
+  <div
+    *ngIf="successMessage"
+    class="notice success-notice"
+    role="status"
+  >
+    {{ successMessage }}
+    <button
+      type="button"
+      (click)="successMessage = ''"
+    >
+      ×
+    </button>
+  </div>
+
+  <!-- Loading state -->
+  <div *ngIf="loadingDocuments" class="loading-message">
+    Loading your documents...
+  </div>
+
+  <!-- Empty state -->
+  <div
+    *ngIf="!loadingDocuments && documents.length === 0"
+    class="empty-state"
+  >
+    <h2>No documents yet</h2>
+    <p>
+      Upload a PDF from the documents page before generating questions.
+    </p>
+    <button
+      type="button"
+      class="primary-button"
+      (click)="backToDocuments()"
+    >
+      Go to documents
+    </button>
+  </div>
+
+  <ng-container *ngIf="!loadingDocuments && documents.length > 0">
+  <div class="panels-grid">
+
+    <!-- Generate Questions -->
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <h2>Generate questions</h2>
+          <p>
+            Choose your source material and what you want to generate.
+          </p>
+        </div>
+      </div>
+
+      <!-- Source documents dropdown -->
+      <div class="field">
+        <span class="field-label">Source documents</span>
+
+        <div class="multi-select">
+          <button
+            type="button"
+            class="dropdown-trigger"
+            [attr.aria-expanded]="isDocumentDropdownOpen"
+            (click)="isDocumentDropdownOpen = !isDocumentDropdownOpen"
+          >
+            <span>{{ selectedDocumentLabel }}</span>
+            <span>{{ isDocumentDropdownOpen ? '▲' : '▼' }}</span>
+          </button>
+
+          <div
+            *ngIf="isDocumentDropdownOpen"
+            class="dropdown-menu"
+          >
+            <label class="dropdown-option select-all">
+              <input
+                type="checkbox"
+                [checked]="allDocumentsSelected"
+                (change)="toggleAllDocumentSelection($any($event.target).checked)"
+              />
+              <span>All documents</span>
+            </label>
+
+            <label
+              *ngFor="let document of documents; trackBy: trackDocument"
+              class="dropdown-option"
+            >
+              <input
+                type="checkbox"
+                [checked]="selectedDocumentIds.includes(String(document.id))"
+                (change)="toggleDocumentSelection(document.id, $any($event.target).checked)"
+              />
+              <span>
+                {{ document.name || document.filename || 'Document ' + document.id }}
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <p class="field-hint">{{ selectedDocumentLabel }}</p>
+      </div>
+
+      <!-- Question types dropdown -->
+      <div class="field">
+        <span class="field-label">Question types</span>
+
+        <div class="multi-select">
+          <button
+            type="button"
+            class="dropdown-trigger"
+            [attr.aria-expanded]="isTypeDropdownOpen"
+            (click)="isTypeDropdownOpen = !isTypeDropdownOpen"
+          >
+            <span>
+              {{
+                selectedTypes.length
+                  ? selectedTypes.length + ' type(s) selected'
+                  : 'Select question types'
+              }}
+            </span>
+            <span>{{ isTypeDropdownOpen ? '▲' : '▼' }}</span>
+          </button>
+
+          <div
+            *ngIf="isTypeDropdownOpen"
+            class="dropdown-menu"
+          >
+            <label
+              *ngFor="let type of questionTypes"
+              class="dropdown-option"
+            >
+              <input
+                type="checkbox"
+                [checked]="selectedTypes.includes(type.value)"
+                (change)="toggleTypeSelection(type.value, $any($event.target).checked)"
+              />
+              <span>{{ type.label }}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Question count -->
+      <div class="field">
+        <label for="question-count" class="field-label">
+          Questions per type, per document
+        </label>
+
+        <input
+          id="question-count"
+          class="number-input"
+          type="number"
+          name="numQuestions"
+          [(ngModel)]="numQuestions"
+          min="1"
+          max="50"
+          step="1"
+        />
+      </div>
+
+      <!-- Generate button -->
+      <button
+        type="button"
+        class="primary-button"
+        (click)="generateQuestions()"
+        [disabled]="
+          generatingQuestions ||
+          selectedDocumentIds.length === 0 ||
+          selectedTypes.length === 0
+        "
+      >
+        {{
+          generatingQuestions
+            ? 'Generating questions...'
+            : 'Generate Questions'
+        }}
+      </button>
+
+      <p *ngIf="generatingQuestions" class="field-hint">
+        This may take a little while. Keep this page open until generation finishes.
+      </p>
+    </section>
+
+    <!-- Practice Quiz -->
+    <section class="panel practice-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Practice Quiz</h2>
+          <p>
+            Test yourself using existing saved questions.
+            This won't generate any new questions.
+          </p>
+        </div>
+      </div>
+
+      <!-- Quiz documents dropdown -->
+      <div class="field">
+        <span class="field-label">Quiz documents</span>
+
+        <div class="multi-select">
+          <button
+            type="button"
+            class="dropdown-trigger"
+            [attr.aria-expanded]="isPracticeDocumentDropdownOpen"
+            (click)="isPracticeDocumentDropdownOpen = !isPracticeDocumentDropdownOpen"
+          >
+            <span>{{ selectedPracticeDocumentLabel }}</span>
+            <span>
+              {{ isPracticeDocumentDropdownOpen ? '▲' : '▼' }}
+            </span>
+          </button>
+
+          <div
+            *ngIf="isPracticeDocumentDropdownOpen"
+            class="dropdown-menu"
+          >
+            <label class="dropdown-option select-all">
+              <input
+                type="checkbox"
+                [checked]="allPracticeDocumentsSelected"
+                (change)="toggleAllPracticeDocuments($any($event.target).checked)"
+              />
+              <span>All documents</span>
+            </label>
+
+            <label
+              *ngFor="let document of documents; trackBy: trackDocument"
+              class="dropdown-option"
+            >
+              <input
+                type="checkbox"
+                [checked]="practiceDocumentIds.includes(String(document.id))"
+                (change)="togglePracticeDocument(document.id, $any($event.target).checked)"
+              />
+              <span>
+                {{ document.name || document.filename || 'Document ' + document.id }}
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <p class="field-hint">{{ selectedPracticeDocumentLabel }}</p>
+      </div>
+
+      <!-- Quiz question types dropdown -->
+      <div class="field">
+        <span class="field-label">Quiz question types</span>
+
+        <div class="multi-select">
+          <button
+            type="button"
+            class="dropdown-trigger"
+            [attr.aria-expanded]="isPracticeTypeDropdownOpen"
+            (click)="isPracticeTypeDropdownOpen = !isPracticeTypeDropdownOpen"
+          >
+            <span>
+              {{
+                practiceTypes.length
+                  ? practiceTypes.length + ' type(s) selected'
+                  : 'Select question types'
+              }}
+            </span>
+            <span>
+              {{ isPracticeTypeDropdownOpen ? '▲' : '▼' }}
+            </span>
+          </button>
+
+          <div
+            *ngIf="isPracticeTypeDropdownOpen"
+            class="dropdown-menu"
+          >
+            <label
+              *ngFor="let type of questionTypes"
+              class="dropdown-option"
+            >
+              <input
+                type="checkbox"
+                [checked]="practiceTypes.includes(type.value)"
+                (change)="togglePracticeType(type.value, $any($event.target).checked)"
+              />
+              <span>{{ type.label }}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Start quiz button -->
+      <button
+        type="button"
+        class="primary-button"
+        (click)="startPracticeQuiz()"
+      >
+        Start Practice Quiz →
+      </button>
+    </section>
+  </div>
+
+  </ng-container>
+</div>

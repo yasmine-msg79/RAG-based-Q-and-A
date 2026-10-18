@@ -1,0 +1,227 @@
+
+<div class="quiz-page">
+  <header class="quiz-header">
+    <div class="quiz-navigation">
+      <button
+        type="button"
+        class="back-button"
+        (click)="backToQuestionBank()"
+      >
+        ← Back to Question Generation
+      </button>
+
+      <button
+        type="button"
+        class="back-button"
+        (click)="backToSubjects()"
+      >
+        ← Back to Subject
+      </button>
+    </div>
+
+    <p class="eyebrow">PRACTICE SESSION</p>
+    <h1>Practice Quiz</h1>
+    <p class="subtitle">
+      Answer the questions below, then submit to see your results.
+    </p>
+
+    <div *ngIf="!loading && questions.length > 0" class="progress-card">
+      <div class="progress-labels">
+        <span>Questions answered</span>
+        <strong>{{ answeredCount }} / {{ questions.length }}</strong>
+      </div>
+
+      <div
+        class="progress-track"
+        role="progressbar"
+        [attr.aria-valuenow]="answeredCount"
+        [attr.aria-valuemin]="0"
+        [attr.aria-valuemax]="questions.length"
+      >
+        <div
+          class="progress-fill"
+          [style.width.%]="(answeredCount / questions.length) * 100"
+        ></div>
+      </div>
+    </div>
+  </header>
+
+  <div *ngIf="loading" class="state-card">
+    <div class="spinner"></div>
+    <h2>Preparing your quiz...</h2>
+    <p>Loading saved questions from your selected documents.</p>
+  </div>
+
+  <div *ngIf="!loading && errorMessage" class="state-card error-state">
+    <h2>Unable to start the quiz</h2>
+    <p>{{ errorMessage }}</p>
+
+    <button
+      type="button"
+      class="primary-button"
+      (click)="backToQuestionBank()"
+    >
+      Return to Question Generation
+    </button>
+
+    <button
+      type="button"
+      class="back-button"
+      (click)="backToSubjects()"
+    >
+      Back to Subject
+    </button>
+  </div>
+
+  <ng-container *ngIf="!loading && questions.length > 0">
+    <section *ngIf="submitted" class="results-card">
+      <div class="results-icon">
+        {{ percentage >= 70 ? '✓' : '!' }}
+      </div>
+
+      <p class="eyebrow">QUIZ COMPLETED</p>
+      <h2>Your results</h2>
+
+      <div class="score-display">
+        <strong>{{ percentage }}%</strong>
+        <span>{{ score }} out of {{ questions.length }} correct</span>
+      </div>
+
+      <p class="results-message">
+        {{
+          percentage >= 90
+            ? 'Excellent work!'
+            : percentage >= 70
+              ? 'Good job. Review any missed questions.'
+              : 'Keep practising and review the questions you missed.'
+        }}
+      </p>
+    </section>
+
+    <form class="question-form" (ngSubmit)="submitQuiz()">
+      <article
+        *ngFor="let question of questions; let i = index"
+        class="question-card"
+        [class.correct-card]="submitted && isCorrect(question)"
+        [class.incorrect-card]="submitted && !isCorrect(question)"
+      >
+        <div class="question-heading">
+          <span class="question-number">
+            QUESTION {{ i + 1 }}
+          </span>
+
+          <span class="type-badge">
+            {{ questionTypeLabel(question.question_type) }}
+          </span>
+
+          <span
+            *ngIf="submitted"
+            class="result-badge"
+            [class.result-correct]="isCorrect(question)"
+            [class.result-incorrect]="!isCorrect(question)"
+          >
+            {{ isCorrect(question) ? 'Correct' : 'Incorrect' }}
+          </span>
+        </div>
+
+        <h2>{{ question.question }}</h2>
+
+        <div
+          *ngIf="question.answers.length > 0"
+          class="answer-options"
+        >
+          <label
+            *ngFor="let answer of question.answers"
+            class="answer-option"
+            [class.answer-selected]="
+              question.selectedAnswer === answerValue(answer)
+            "
+            [class.answer-correct]="
+              submitted && isCorrectOption(question, answer)
+            "
+            [class.answer-incorrect]="
+              submitted &&
+              question.selectedAnswer === answerValue(answer) &&
+              !isCorrectOption(question, answer)
+            "
+          >
+            <input
+              type="radio"
+              [name]="'question-' + question.id + '-' + question.document_id"
+              [value]="answerValue(answer)"
+              [checked]="
+                question.selectedAnswer === answerValue(answer)
+              "
+              [disabled]="submitted"
+              (change)="selectAnswer(question, answerValue(answer))"
+            />
+
+            <span class="radio-indicator"></span>
+            <span class="answer-label">{{ answerText(answer) }}</span>
+
+            <span
+              *ngIf="submitted && isCorrectOption(question, answer)"
+              class="correct-marker"
+            >
+              ✓
+            </span>
+          </label>
+        </div>
+
+        <p
+          *ngIf="question.answers.length === 0"
+          class="missing-options"
+        >
+          This question has no answer options. It cannot be answered in this quiz.
+        </p>
+
+        <div *ngIf="submitted" class="feedback">
+          <strong>
+            {{ isCorrect(question) ? 'Well done!' : 'Review this answer' }}
+          </strong>
+
+          <p *ngIf="question.explanation">
+            {{ question.explanation }}
+          </p>
+        </div>
+      </article>
+
+      <footer class="quiz-footer">
+        <p *ngIf="!submitted">
+          {{ questions.length - answeredCount }} unanswered
+          {{ questions.length - answeredCount === 1 ? 'question' : 'questions' }}
+        </p>
+
+        <p *ngIf="submitted">
+          Your answers have been submitted.
+        </p>
+
+        <button
+          *ngIf="!submitted"
+          type="submit"
+          class="primary-button submit-button"
+        >
+          Submit Quiz
+        </button>
+
+        <button
+          *ngIf="submitted"
+          type="button"
+          class="primary-button"
+          (click)="backToQuestionBank()"
+        >
+          Back to Question Generation
+        </button>
+
+        <button
+          *ngIf="submitted"
+          type="button"
+          class="back-button"
+          (click)="backToSubjects()"
+        >
+          Back to Subject
+        </button>
+      </footer>
+    </form>
+  </ng-container>
+</div>
