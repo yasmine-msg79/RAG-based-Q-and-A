@@ -153,6 +153,7 @@ activemq-data/
 .env
 .envrc
 .venv
+assets/subjects.json
 env/
 venv/
 ENV/
