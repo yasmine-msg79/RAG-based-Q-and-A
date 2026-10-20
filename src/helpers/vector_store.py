@@ -66,3 +66,13 @@ def has_document_chunks(subject_id: int, document_id: int) -> bool:
         include=["metadatas"],
     )
     return bool(results["ids"])
+
+def delete_document_chunks(subject_id: int, document_id: int):
+    collection.delete(
+        where={
+            "$and": [
+                {"subject_id": {"$eq": subject_id}},
+                {"document_id": {"$eq": document_id}},
+            ]
+        }
+    )

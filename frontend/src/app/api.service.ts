@@ -105,13 +105,15 @@ export class ApiService {
   generateMCQs(
     documentId: string | number,
     numQuestions: number,
-    topK: number = 3
+    topK: number = 3,
+    difficulty: string = 'MEDIUM'
   ): Observable<any> {
     return this.http.post(
       `${this.baseUrl}/data/documents/${encodeURIComponent(String(documentId))}/generate_mcqs`,
       {
         num_questions: numQuestions,
-        top_k: topK
+        top_k: topK,
+        difficulty: difficulty
       }
     );
   }
@@ -119,13 +121,15 @@ export class ApiService {
   generateTrueFalse(
     documentId: string | number,
     numQuestions: number,
-    topK: number = 3
+    topK: number = 3,
+    difficulty: string = 'MEDIUM'
   ): Observable<any> {
     return this.http.post(
       `${this.baseUrl}/data/documents/${encodeURIComponent(String(documentId))}/generate_true_false`,
       {
         num_questions: numQuestions,
-        top_k: topK
+        top_k: topK,
+        difficulty: difficulty
       }
     );
   }

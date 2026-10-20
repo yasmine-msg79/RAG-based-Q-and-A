@@ -15,5 +15,6 @@ class Subject(Base):
     NAME: Mapped[str] = mapped_column(String(255), nullable=False)
 
     documents: Mapped[list["Document"]] = relationship(
-        back_populates="subject"
+        back_populates="subject",
+        passive_deletes=True,
     )

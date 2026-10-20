@@ -32,7 +32,7 @@ def generate_answer(query, retrieved_chunks):
     return response.message.content
 
 
-def generate_mcqs(retrieved_chunks, num_questions=5):
+def generate_mcqs(retrieved_chunks, num_questions=5, difficulty=["EASY", "MEDIUM", "HARD"]):
     context = "\n\n".join(
         chunk["text"] for chunk in retrieved_chunks
     )
@@ -45,7 +45,7 @@ def generate_mcqs(retrieved_chunks, num_questions=5):
                 "role": "system",
                 "content": """
 You generate multiple-choice questions using only the
-provided context.
+provided context, with the selected difficulty levels.
 
 Return valid JSON in this exact structure:
 {
@@ -69,6 +69,7 @@ Rules:
 - correct_answer must be A, B, C, or D.
 - Make incorrect options plausible but clearly incorrect.
 - Do not use information absent from the context.
+- Use the specified difficulty levels to guide question complexity.
 - Return only the requested number of questions.
 """
             },
@@ -86,7 +87,7 @@ Rules:
 
 
 
-def generate_true_false(retrieved_chunks, num_questions=5):
+def generate_true_false(retrieved_chunks, num_questions=5, difficulty=["EASY", "MEDIUM", "HARD"]):
     context = "\n\n".join(
         chunk["text"] for chunk in retrieved_chunks
     )
@@ -98,7 +99,7 @@ def generate_true_false(retrieved_chunks, num_questions=5):
             {
                 "role": "system",
                 "content": """
-Generate True/False questions using only the provided context.
+Generate True/False questions using only the provided context, with the selected difficulty levels.
 
 Return JSON in exactly this structure:
 {
@@ -115,6 +116,7 @@ Rules:
 - "answer" must be a JSON boolean: true or false, never a string.
 - Include a reasonable mix of true and false statements.
 - False statements must contradict the context.
+- Use the specified difficulty levels to guide question complexity.
 - Return exactly the requested number of questions.
 - Return only valid JSON.
 """

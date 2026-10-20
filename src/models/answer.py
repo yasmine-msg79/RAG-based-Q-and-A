@@ -17,7 +17,7 @@ class Answer(Base):
         Boolean, nullable=False, default=False
     )
     QUESTION_ID: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("QUESTION.ID"), nullable=False
+        BigInteger, ForeignKey("QUESTION.ID", ondelete="CASCADE"), nullable=False
     )
 
     question: Mapped["Question"] = relationship(back_populates="answers")

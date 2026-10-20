@@ -36,6 +36,7 @@ export class QuizComponent implements OnInit {
 
   questions: QuizQuestion[] = [];
 
+  selectedDifficulties: string[] = [];
 
   loading = true;
   submitted = false;
@@ -62,6 +63,12 @@ export class QuizComponent implements OnInit {
       .split(',')
       .filter(Boolean)
       .map(type => this.normalizeType(type));
+
+    this.selectedDifficulties = (
+      params.get('difficulties') ?? 'EASY,MEDIUM,HARD'
+    ).split(',')
+      .filter(Boolean)
+      .map(value => value.toUpperCase());
 
     if (
         !this.subjectId ||
@@ -137,7 +144,14 @@ export class QuizComponent implements OnInit {
           items.forEach((item: any) => {
             const type = this.normalizeType(item.question_type);
 
-            if (!this.selectedTypes.includes(type)) {
+            const difficulty = String(
+              item.difficulty ?? 'MEDIUM'
+            ).toUpperCase();
+
+            if (
+              !this.selectedTypes.includes(type) ||
+              !this.selectedDifficulties.includes(difficulty)
+            ) {
               return;
             }
 
@@ -145,6 +159,7 @@ export class QuizComponent implements OnInit {
                 ...item,
                 question: item.question ?? item.header ?? item.question_text ?? '',
                 question_type: type,
+                difficulty,
                 document_id: item.document_id ?? documentId,
                 answers: Array.isArray(item.answers)
                     ? item.answers.map((answer: any) => ({

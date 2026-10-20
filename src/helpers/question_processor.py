@@ -15,6 +15,7 @@ class QuestionProcessor:
         document_id: int,
         generated_data: dict,
         question_type: str,
+        difficulty: str,
     ) -> list[int]:
         question_type = question_type.upper()
 
@@ -73,6 +74,7 @@ class QuestionProcessor:
                     HEADER=header,
                     QUESTION_TYPE=question_type,
                     DOC_ID=document_id,
+                    DIFFICULTY=difficulty,
                     answers=answers,
                 )
 
@@ -158,6 +160,30 @@ class QuestionProcessor:
         return (
             db.query(Question)
             .options(selectinload(Question.answers))
+            .order_by(Question.ID)
+            .all()
+        )
+        
+    def get_question_by_difficulty(
+        self,
+        db: Session,
+        document_id: int,
+        difficulty: str,
+    ) -> list[Question]:
+        difficulty = difficulty.upper()
+
+        if difficulty not in {"EASY", "MEDIUM", "HARD"}:
+            raise ValueError(
+                "Unsupported difficulty level. Use EASY, MEDIUM, or HARD."
+            )
+
+        return (
+            db.query(Question)
+            .options(selectinload(Question.answers))
+            .filter(
+                Question.DOC_ID == document_id,
+                Question.DIFFICULTY == difficulty,
+            )
             .order_by(Question.ID)
             .all()
         )

@@ -17,6 +17,7 @@ interface QuestionItem {
   id: string | number;
   question: string;
   question_type: string;
+  difficulty: string;
   answers: any[];
   correct_answer?: any;
   explanation?: string;
@@ -49,6 +50,8 @@ export class QuestionBankComponent implements OnInit {
   practiceDocumentIds: string[] = [];
   practiceTypes: string[] = ['MCQ', 'TRUE_FALSE'];
 
+  selectedQuestionCount = 0;
+
   questionTypes = [
     { value: 'MCQ', label: 'Multiple choice' },
     { value: 'TRUE_FALSE', label: 'True / False' }
@@ -56,6 +59,21 @@ export class QuestionBankComponent implements OnInit {
 
   numQuestions = 5;
   topK = 3;
+
+  generationDifficulty = String('MEDIUM');
+  selectedDifficulties: string[] = ['EASY', 'MEDIUM', 'HARD'];
+
+  practiceDifficulties: string[] = [
+    'EASY',
+    'MEDIUM',
+    'HARD'
+  ];
+
+  readonly difficultyOptions = [
+    { value: 'EASY', label: 'Easy' },
+    { value: 'MEDIUM', label: 'Medium' },
+    { value: 'HARD', label: 'Hard' }
+  ];
 
   loadingDocuments = false;
   loadingQuestions = false;
@@ -176,6 +194,26 @@ export class QuestionBankComponent implements OnInit {
     );
   }
 
+  get practiceQuestionCount(): number {
+    const documentIds = new Set(
+      this.practiceDocumentIds.map(String)
+    );
+
+    const types = new Set(
+      this.practiceTypes.map(type => this.normalizeType(type))
+    );
+
+    const difficulties = new Set(this.practiceDifficulties);
+
+    return this.questions.filter(question =>
+      documentIds.has(String(question.document_id)) &&
+      types.has(this.normalizeType(question.question_type)) &&
+      difficulties.has(
+        String(question.difficulty ?? 'MEDIUM').toUpperCase()
+      )
+    ).length;
+  }
+
   get allDocumentsSelected(): boolean {
     return this.documents.length > 0 &&
       this.selectedDocumentIds.length === this.documents.length;
@@ -244,6 +282,17 @@ export class QuestionBankComponent implements OnInit {
       : this.practiceTypes.filter(item => item !== type);
   }
 
+  togglePracticeDifficulty(
+    difficulty: string,
+    checked: boolean
+  ): void {
+    this.practiceDifficulties = checked
+      ? [...new Set([...this.practiceDifficulties, difficulty])]
+      : this.practiceDifficulties.filter(
+          item => item !== difficulty
+        );
+  }
+
   private loadSavedQuestions(): void {
     const ids = [...this.selectedDocumentIds];
 
@@ -267,6 +316,7 @@ export class QuestionBankComponent implements OnInit {
     )
       .pipe(finalize(() => {
         this.loadingQuestions = false;
+        this.cdr.detectChanges();
       }))
       .subscribe({
         next: responses => {
@@ -286,6 +336,7 @@ export class QuestionBankComponent implements OnInit {
           });
 
           console.log('Saved questions loaded:', this.questions.length);
+          this.cdr.detectChanges();
         },
         error: error => {
           console.error('Could not load saved questions:', error);
@@ -322,8 +373,18 @@ export class QuestionBankComponent implements OnInit {
       this.selectedTypes.map(type =>
         (
           type === 'MCQ'
-            ? this.api.generateMCQs(documentId, this.numQuestions, this.topK)
-            : this.api.generateTrueFalse(documentId, this.numQuestions, this.topK)
+            ? this.api.generateMCQs(
+                documentId,
+                this.numQuestions,
+                this.topK,
+                this.generationDifficulty
+              )
+            : this.api.generateTrueFalse(
+                documentId,
+                this.numQuestions,
+                this.topK,
+                this.generationDifficulty
+              )
         ).pipe(
           timeout(120000),
           catchError(error =>
@@ -392,7 +453,8 @@ export class QuestionBankComponent implements OnInit {
       {
         queryParams: {
           documents: this.practiceDocumentIds.join(','),
-          types: this.practiceTypes.join(',')
+          types: this.practiceTypes.join(','),
+          difficulties: this.practiceDifficulties.join(',')
         }
       }
     ).then(success => {

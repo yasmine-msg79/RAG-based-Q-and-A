@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from helpers.config import get_files_path, get_settings
 from helpers.subject_processor import SubjectProcessor
 from models import Document, ResponseEnums
+from helpers import vector_store
 
 
 class DocProcessor:
@@ -143,6 +144,7 @@ class DocProcessor:
         document_id: int,
     ):
         document = db.query(Document).filter(Document.ID == document_id).first()
+
         if not document:
             raise ValueError("Document not found.")
 
@@ -157,6 +159,8 @@ class DocProcessor:
 
             db.delete(document)
             db.commit()
+            vector_store.delete_document_chunks(document.SUBJECT_ID, document.ID)
+            
 
         except Exception:
             db.rollback()

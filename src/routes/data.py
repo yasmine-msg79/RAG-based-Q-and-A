@@ -36,6 +36,8 @@ class GenerateAnswerRequest(BaseModel):
 class GenerateQuestionsRequest(BaseModel):
     top_k: int = Field(default=3, ge=1)
     num_questions: int = Field(default=5, ge=1)
+    difficulty: str = Field(default="MEDIUM")
+
 
 
 # ---------------------------------------------------------------------
@@ -315,6 +317,7 @@ def generate_mcqs(
     mcqs = generation.generate_mcqs(
         retrieved_chunks,
         request.num_questions,
+        difficulty=request.difficulty,
     )
 
     saved_ids = QuestionProcessor().save_generated_questions(
@@ -322,6 +325,7 @@ def generate_mcqs(
         document_id=document["id"],
         generated_data=mcqs,
         question_type="MCQ",
+        difficulty=request.difficulty,
     )
 
     return {
@@ -360,6 +364,8 @@ def generate_true_false(
     true_false_questions = generation.generate_true_false(
         retrieved_chunks,
         request.num_questions,
+        difficulty=request.difficulty,
+        
     )
 
     saved_ids = QuestionProcessor().save_generated_questions(
@@ -367,6 +373,7 @@ def generate_true_false(
         document_id=document["id"],
         generated_data=true_false_questions,
         question_type="TRUE_FALSE",
+        difficulty=request.difficulty,
     )
 
     return {
@@ -409,7 +416,7 @@ def get_questions_by_subject(
     subject_id: int,
     db: Session = Depends(get_db),
 ):
-    subject = SubjectProcessor().get_subject_by_id(db, subject_id)
+    subject = SubjectProcessor().get_subject(db, subject_id)
 
     if subject is None:
         raise HTTPException(
@@ -466,6 +473,10 @@ def get_questions_by_type(
 # DELETE /api/v1/data/documents/{document_id}
 # ---------------------------------------------------------------------
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 @data_router.delete("/documents/{document_id}")
 def delete_document(
     document_id: int,
@@ -476,7 +487,9 @@ def delete_document(
     try:
         DocProcessor().delete_document(db, document["id"])
     except Exception:
-        # Replace with logger.exception(...) when logging is configured.
+        logger.exception(
+            "Failed to delete document ID %s", document_id
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete document.",

@@ -13,11 +13,12 @@ class Document(Base):
     )
     NAME: Mapped[str] = mapped_column(String(255), nullable=False)
     SUBJECT_ID: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("SUBJECT.ID"), nullable=False
+        BigInteger, ForeignKey("SUBJECT.ID", ondelete="CASCADE"), nullable=False
     )
     FILENAME: Mapped[str] = mapped_column(String(255), nullable=False)
 
     subject: Mapped["Subject"] = relationship(back_populates="documents")
     questions: Mapped[list["Question"]] = relationship(
-        back_populates="document"
+        back_populates="document",
+        passive_deletes=True,
     )
